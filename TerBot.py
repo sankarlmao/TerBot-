@@ -1,8 +1,10 @@
 import random
 import time
+from datetime import datetime
+import nltk
+from nltk.chat.util import Chat, reflections
 
 # --- ANSI Color Codes for Terminal Output ---
-# Makes the chat more readable and fun.
 class Colors:
     """A class to hold ANSI color codes for terminal text."""
     RESET = '\033[0m'
@@ -12,107 +14,143 @@ class Colors:
 
 def print_bot_message(message):
     """Prints a message from the bot with a typing effect."""
+    if not message: return # Don't print empty messages
     print(f"{Colors.BLUE}Bot: ", end='', flush=True)
     for char in message:
         print(char, end='', flush=True)
-        # Adjust the sleep time to change typing speed
-        time.sleep(0.03)
+        time.sleep(0.02)
     print(Colors.RESET)
-
-def get_bot_response(user_input):
-    """
-    Analyzes the user's input and returns a suitable response.
-    This is the core logic of the chatbot.
-    """
-    # Convert input to lowercase to make matching case-insensitive.
-    lowered_input = user_input.lower()
-
-    # --- Pre-defined keyword-response pairs ---
-    # The bot checks if any keyword in the key exists in the user's input.
-    # The value is a list of possible responses, from which one is chosen randomly.
-    response_map = {
-        ("hello", "hi", "hey", "greetings"): [
-            "Well hello there, human!",
-            "Greetings, carbon-based life form. What can I do for you?",
-            "Hi! Ready to chat?"
-        ],
-        ("how are you", "how's it going", "how are things"): [
-            "I'm just a bunch of code, but I'm running smoothly!",
-            "Functioning within expected parameters. How about you?",
-            "Excellent, thanks for asking. All my circuits are buzzing!"
-        ],
-        ("what is your name", "who are you"): [
-            "I am a humble CLI Bot, at your service.",
-            "You can call me the 'Terminal Terminator'. Or just Bot.",
-            "I don't have a name. The budget didn't cover it."
-        ],
-        ("joke", "tell me a joke"): [
-            "Why don't scientists trust atoms? Because they make up everything!",
-            "I told my computer I needed a break, and now it won’t stop sending me Kit-Kat ads.",
-            "Why did the scarecrow win an award? Because he was outstanding in his field!"
-        ],
-        ("weather",): [
-            "I'm not connected to the internet, but it's always 72 degrees and sunny in my source code.",
-            "My forecast: 100% chance of you typing something else interesting.",
-            "You'll have to look out the window for that one. I'm windowless."
-        ],
-        ("what can you do", "help"): [
-            "I can tell you a joke, ask how you are, or just have a simple chat.",
-            "My main function is to demonstrate a basic rule-based chatbot without any APIs.",
-            "Try asking me for a joke or tell me about your day!"
-        ],
-        ("bye", "exit", "quit", "goodbye"): [
-            "Farewell! Don't get into too much trouble.",
-            "See you later, alligator!",
-            "Goodbye! It was fun processing your inputs."
-        ]
-    }
-
-    # --- Default/Fallback responses ---
-    # Used when no keywords are matched.
-    fallback_responses = [
-        "Hmm, that's an interesting thought. I'll have to ponder that.",
-        "I'm not quite sure how to respond to that. Try asking me for a joke!",
-        "My programming is a bit limited. Could you rephrase that?",
-        "That went right over my virtual head. Ask me something else?"
-    ]
-
-    # Iterate through the response map to find a match
-    for keywords, responses in response_map.items():
-        if any(keyword in lowered_input for keyword in keywords):
-            return random.choice(responses)
-
-    # If no match is found, return a random fallback response
-    return random.choice(fallback_responses)
 
 def main():
     """The main function to run the chatbot loop."""
-    print(f"{Colors.YELLOW}--- Witty CLI Chatbot ---{Colors.RESET}")
-    print_bot_message("Hello! I'm a simple chatbot. Type 'bye' or 'exit' to quit.")
+    chatbot_memory = {}
+
+    # --- NLTK Chatbot Patterns ---
+    # The pairs define the patterns and responses.
+    # Regular expressions are used for pattern matching.
+    # %1, %2, etc., are placeholders for captured groups from the user's input.
+    pairs = [
+        [
+            r"my name is (.*)",
+            ["Hello %1, how are you today?", "Nice to meet you, %1! How can I help?",]
+        ],
+        [
+            r"what is my name",
+            ["I'm not sure, you haven't told me yet! You can say 'my name is...'",]
+        ],
+        [
+            r"hi|hey|hello",
+            ["Hello!", "Hey there!", "Hi! What's on your mind?"]
+        ],
+        [
+            r"how are you ?",
+            ["I'm doing great, thanks for asking! I'm a machine, so I'm always at 100%.", "I'm doing well, how about you?",]
+        ],
+        [
+            r"sorry (.*)",
+            ["It's alright.", "No need to apologize.",]
+        ],
+        [
+            r"i am (.*) (good|well|okay|ok)",
+            ["Nice to hear that!", "Alright, great!",]
+        ],
+        [
+            r"(.*) age?",
+            ["I am a timeless computer program.", "Age is just a number, and in my case, it's a lot of them.",]
+        ],
+        [
+            r"what (.*) want ?",
+            ["I want to help you out!", "My goal is to have an interesting conversation.",]
+        ],
+        [
+            r"what is your name|who are you",
+            ["I'm a chatbot created in Python. You can call me PyBot.", "I am a humble CLI bot."]
+        ],
+        [
+            r"what can you do|help",
+            ["I can chat with you about many things. I can also tell you the time and date. Try asking me something!",]
+        ],
+        [
+            r"quit|bye|exit|goodbye",
+            ["Bye for now. Take care!", "It was nice chatting with you. Goodbye!",]
+        ],
+        [
+            r"i work in (.*)",
+            ["%1 must be an interesting place to work!", "That's cool! What's your role at %1?",]
+        ],
+        [
+            r"i (.*) (like|love|enjoy) (.*)",
+            ["Why do you %2 %3?", "That's great to hear! What is it about %3 that you %2?",]
+        ],
+        [
+            r"i feel (.*)",
+            ["Why do you feel %1?", "I hope you feel better soon if you're feeling down.", "It's interesting that you feel %1.",]
+        ],
+        [
+            r"the time",
+            [f"The current time is {datetime.now().strftime('%I:%M %p')}."]
+        ],
+        [
+            r"the date",
+            [f"Today's date is {datetime.now().strftime('%A, %B %d, %Y')}."]
+        ],
+        [
+            r"(.*)", # Default fallback pattern
+            [
+                "That's an interesting point. Can you tell me more?",
+                "I see. And what do you think about that?",
+                "How does that make you feel?",
+                "I'm not sure I understand completely. Could you rephrase?",
+            ]
+        ]
+    ]
+
+    print(f"{Colors.YELLOW}--- Intelligent CLI Chatbot v3.0 ---{Colors.RESET}")
+    print_bot_message("Hello! I'm a more advanced chatbot now. Let's talk. Type 'bye' to quit.")
+
+    # Create the Chat instance
+    chat = Chat(pairs, reflections)
 
     while True:
         try:
-            # Get user input
             user_input = input(f"{Colors.GREEN}You: {Colors.RESET}")
 
-            # Check for exit condition
-            if user_input.lower() in ["bye", "exit", "quit"]:
-                print_bot_message(get_bot_response(user_input))
-                break
+            # Get response from the NLTK chat engine
+            bot_reply = chat.respond(user_input)
 
-            # Get and print the bot's response
-            bot_reply = get_bot_response(user_input)
+            # --- Handle Memory ---
+            # Check if user told us their name using the NLTK pattern
+            if "my name is" in user_input.lower():
+                name = user_input.split("is", 1)[1].strip().capitalize()
+                chatbot_memory['name'] = name
+                # Overwrite the NLTK response to be more personal
+                bot_reply = f"Nice to meet you, {name}! I'll remember that."
+
+            # Check if user is asking for their name
+            elif "what is my name" in user_input.lower():
+                if 'name' in chatbot_memory:
+                    bot_reply = f"Your name is {chatbot_memory['name']}, of course!"
+                else:
+                    bot_reply = "I don't think you've told me your name yet."
+
+            # Personalize greetings if name is known
+            elif user_input.lower() in ("hi", "hey", "hello") and 'name' in chatbot_memory:
+                bot_reply = f"Hello again, {chatbot_memory['name']}!"
+
+            # --- Print response and check for exit ---
             print_bot_message(bot_reply)
 
+            if user_input.lower() in ["bye", "exit", "quit", "goodbye"]:
+                break
+
         except KeyboardInterrupt:
-            # Handle Ctrl+C gracefully
-            print("\n") # Move to a new line
+            print("\n")
             print_bot_message("Goodbye! Shutting down gracefully.")
             break
         except Exception as e:
-            # Handle any other unexpected errors
             print_bot_message(f"Oops! Something went wrong: {e}")
             break
 
 if __name__ == "__main__":
     main()
+
