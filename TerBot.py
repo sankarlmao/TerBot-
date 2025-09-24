@@ -1,38 +1,45 @@
-import sys
-import time
-import random
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import json
+import os
 import torch
-from colorama import Fore, Style, init
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-init(autoreset=True)
+# --- Load model & tokenizer ---
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
+model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-small")
 
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
-model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
+# --- Memory setup ---
+memory_file = "terbot_memory.json"
+if os.path.exists(memory_file):
+    with open(memory_file, "r") as f:
+        memory = json.load(f)
+else:
+    memory = {"conversation_history": []}
 
-def type_text(text, delay=0.05):
-    for char in text:
-        sys.stdout.write(char)
-        sys.stdout.flush()
-        time.sleep(delay)
-    print()
+print("🤖 TerBot: Hello! I remember what you tell me. Type 'bye' to exit.")
 
-def get_bot_response(user_input):
-    input_ids = tokenizer.encode(user_input + tokenizer.eos_token, return_tensors='pt')
-    output_ids = model.generate(input_ids, max_length=1000, pad_token_id=tokenizer.eos_token_id)
-    return tokenizer.decode(output_ids[:, input_ids.shape[-1]:][0], skip_special_tokens=True)
+# --- Chat loop ---
+while True:
+    user_input = input("You: ").strip()
+    if user_input.lower() == "bye":
+        print("🤖 TerBot: Goodbye! I’ll remember our chat.")
+        break
 
-def main():
-    print(Fore.CYAN + "Welcome to TerBot! Type 'exit' to quit." + Style.RESET_ALL)
+    # Build context from memory (last few exchanges)
+    past_dialogue = ""
+    for line in memory["conversation_history"][-6:]:  # last 3 exchanges
+        past_dialogue += line + "\n"
+    prompt = past_dialogue + f"User: {user_input}\nTerBot:"
 
-    while True:
-        user_input = input(Fore.YELLOW + "You: " + Style.RESET_ALL)
-        if user_input.lower() == "exit":
-            type_text(Fore.CYAN + "TerBot: Goodbye! 👋" + Style.RESET_ALL)
-            break
+    # Encode and generate
+    input_ids = tokenizer.encode(prompt, return_tensors="pt")
+    output_ids = model.generate(input_ids, max_length=input_ids.shape[1]+50, do_sample=True, temperature=0.8)
+    response = tokenizer.decode(output_ids[:, input_ids.shape[1]:][0], skip_special_tokens=True)
 
-        response = get_bot_response(user_input)
-        type_text(Fore.CYAN + "TerBot: " + Style.RESET_ALL + response, delay=random.uniform(0.03, 0.08))
+    print(f"🤖 TerBot: {response}")
 
-if __name__ == "__main__":
-    main()
+    # Save conversation to memory
+    memory["conversation_history"].append(f"User: {user_input}")
+    memory["conversation_history"].append(f"TerBot: {response}")
+
+    with open(memory_file, "w") as f:
+        json.dump(memory, f, indent=4)
